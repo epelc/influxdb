@@ -58,7 +58,7 @@ func TestParser_ParseStatement(t *testing.T) {
 
 		// SELECT statement
 		{
-			s: `SELECT field1, field2 ,field3 AS field_x FROM myseries WHERE host = 'hosta.influxdb.org' GROUP BY 10h LIMIT 20 ORDER BY ASC;`,
+			s: `SELECT field1, field2 ,field3 AS field_x FROM myseries WHERE host = 'hosta.influxdb.org' GROUP BY 10h ORDER BY ASC LIMIT 20;`,
 			stmt: &influxql.SelectStatement{
 				Fields: influxql.Fields{
 					&influxql.Field{Expr: &influxql.VarRef{Val: "field1"}},
@@ -75,10 +75,8 @@ func TestParser_ParseStatement(t *testing.T) {
 					&influxql.Dimension{Expr: &influxql.DurationLiteral{Val: 10 * time.Hour}},
 				},
 				Limit:     20,
-				OrderBy: &influxql.OrderBy{
-					Fields: influxql.OrderByFields{
-						&influxql.OrderByField{Name: "time", Ascending: true},
-					},
+				SortFields: influxql.SortFields{
+					&influxql.SortField{Ascending: true},
 				},
 			},
 		},
@@ -122,6 +120,21 @@ func TestParser_ParseStatement(t *testing.T) {
 			},
 		},
 
+		// SELECT statement with multiple ORDER BY fields
+		{
+			s: `SELECT field1 FROM myseries ORDER BY ASC, field1, field2 DESC LIMIT 10`,
+			stmt: &influxql.SelectStatement{
+				Fields: influxql.Fields{&influxql.Field{Expr: &influxql.VarRef{Val: "field1"}}},
+				Source: &influxql.Series{Name: "myseries"},
+				SortFields: influxql.SortFields{
+					&influxql.SortField{Ascending: true,},
+					&influxql.SortField{Name: "field1",},
+					&influxql.SortField{Name: "field2",},
+				},
+				Limit: 10,
+			},
+		},
+
 		// DELETE statement
 		{
 			s: `DELETE FROM myseries WHERE host = 'hosta.influxdb.org'`,
@@ -141,14 +154,19 @@ func TestParser_ParseStatement(t *testing.T) {
 			stmt: &influxql.ListSeriesStatement{},
 		},
 
-		// LIST SERIES WHERE statement
+		// LIST SERIES WHERE with ORDER BY and LIMIT
 		{
-			s:    `LIST SERIES WHERE region = 'uswest' LIMIT 10`,
+			s:    `LIST SERIES WHERE region = 'uswest' ORDER BY ASC, field1, field2 DESC LIMIT 10`,
 			stmt: &influxql.ListSeriesStatement{
 				Condition: &influxql.BinaryExpr{
 					Op: influxql.EQ,
 					LHS: &influxql.VarRef{Val: "region"},
 					RHS: &influxql.StringLiteral{Val: "uswest"},
+				},
+				SortFields: influxql.SortFields{
+					&influxql.SortField{Ascending: true,},
+					&influxql.SortField{Name: "field1",},
+					&influxql.SortField{Name: "field2",},
 				},
 				Limit: 10,
 			},
@@ -351,116 +369,6 @@ func TestParser_ParseExpr(t *testing.T) {
 		}
 	}
 }
-
-// Test parsing an ORDER BY field.
-func TestParser_OrderByField(t *testing.T) {
-	var tests = []struct {
-		s     string
-		field *influxql.OrderByField
-		err   string
-	}{
-		// ASC (time is the implied field name)
-		{
-			s: `ASC`,
-			field: &influxql.OrderByField{Name: `time`, Ascending: true},
-			err: ``,
-		},
-
-		// DESC (time is the implied field name)
-		{
-			s: `DESC`,
-			field: &influxql.OrderByField{Name: `time`, Ascending: false},
-			err: ``,
-		},
-
-		// With just a field name (DESC implied)
-		{
-			s: `myfield`,
-			field: &influxql.OrderByField{Name: `myfield`, Ascending: false},
-			err: ``,
-		},
-
-		// With field name and ASC
-		{
-			s: `myfield ASC`,
-			field: &influxql.OrderByField{Name: `myfield`, Ascending: true},
-			err: ``,
-		},
-
-		// Field name with non ASC or DESC token following
-		{
-			s: `myfield LIMIT 10`,
-			field: &influxql.OrderByField{Name: `myfield`, Ascending: false},
-			err: ``,
-		},
-
-		// Field name followed by another field
-		{
-			s: `field1 ASC, field2`,
-			field: &influxql.OrderByField{Name: `field1`, Ascending: true},
-			err: ``,
-		},
-
-		// Quoted field name
-		{
-			s: `"1_fUnkd3Lic.Field-name.o-O" DESC,`,
-			field: &influxql.OrderByField{Name: `1_fUnkd3Lic.Field-name.o-O`, Ascending: false},
-			err: ``,
-		},
-
-		// errors
-		{s: `1`, field: nil, err: `found 1, expected identifier, ASC, or DESC at line 1, char 1`,},
-		{s: ` LIMIT`, field: nil, err: `found LIMIT, expected identifier, ASC, or DESC at line 1, char 2`,},
-		{s: ``, field: nil, err: `found EOF, expected identifier, ASC, or DESC at line 1, char 1`,},
-	}
-
-	for i, test := range tests {
-		field, err := influxql.NewParser(strings.NewReader(test.s)).ParseOrderByField()
-		if !reflect.DeepEqual(test.err, errstring(err)) {
-			t.Errorf("%d. %q: error mismatch:\n  exp=%s\n  got=%s\n\n", i, test.s, test.err, err)
-		} else if test.err == "" && !reflect.DeepEqual(test.field, field) {
-			t.Errorf("%d. %q\n\nexpr mismatch:\n\nexp=%#v\n\ngot=%#v\n\n", i, test.s, test.field, field)
-		}
-	}
-}
-
-func TestParser_ParseOrderByFields(t *testing.T) {
-	var tests = []struct {
-		s      string
-		fields influxql.OrderByFields
-		err    string
-	}{
-		// One field
-		{
-			s: `myfield`,
-			fields: influxql.OrderByFields{
-				&influxql.OrderByField{Name: `myfield`, Ascending: false},
-			},
-			err: ``,
-		},
-
-		// Multiple fields
-		{
-			s: `ASC, field1 DESC, field2`,
-			fields: influxql.OrderByFields{
-				&influxql.OrderByField{Name: `time`, Ascending: true},
-				&influxql.OrderByField{Name: `field1`, Ascending: false},
-				&influxql.OrderByField{Name: `field2`, Ascending: false},
-			},
-			err: ``,
-		},
-	}
-
-	for i, test := range tests {
-		fields, err := influxql.NewParser(strings.NewReader(test.s)).ParseOrderByFields()
-		if !reflect.DeepEqual(test.err, errstring(err)) {
-			t.Errorf("%d. %q: error mismatch:\n  exp=%s\n  got=%s\n\n", i, test.s, test.err, err)
-		} else if test.err == "" && !reflect.DeepEqual(test.fields, fields) {
-			t.Errorf("%d. %q\n\nexpr mismatch:\n\nexp=%#v\n\ngot=%#v\n\n", i, test.s, test.fields, fields)
-		}
-	}
-}
-
 
 // Ensure a time duration can be parsed.
 func TestParseDuration(t *testing.T) {

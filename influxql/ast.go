@@ -72,9 +72,8 @@ func (_ *DurationLiteral) node() {}
 func (_ *BinaryExpr) node()      {}
 func (_ *ParenExpr) node()       {}
 func (_ *Wildcard) node()        {}
-func (_ *OrderBy) node()         {}
-func (_ OrderByFields) node()    {}
-func (_ *OrderByField) node()    {}
+func (_ SortFields) node()    {}
+func (_ *SortField) node()    {}
 
 // Query represents a collection of ordered statements.
 type Query struct {
@@ -137,53 +136,31 @@ func (_ *Series) source() {}
 func (_ *Join) source()   {}
 func (_ *Merge) source()  {}
 
-// Order represents one or more fields to sort by.
-type Order interface {
-	Node
-	order()
-}
-
-func (_ *OrderBy) order() {}
-
-// OrderBy represents an ORDER BY clause.
-type OrderBy struct {
-	// Ordered list of fields to sort by.
-	Fields OrderByFields
-}
-
-// String returns a string representation of an OrderBy
-func (o *OrderBy) String() string {
-	var buf bytes.Buffer
-	_, _ = buf.WriteString("ORDER BY ")
-	_, _ = buf.WriteString(o.Fields.String())
-	return buf.String()
-}
-
-// OrderByField represens one field in an ORDER BY clause.
-type OrderByField struct {
-	// Name of the field to sort by.
+// SortField represens a field to sort results by.
+type SortField struct {
+	// Name of the field
 	Name string
 
 	// Sort order.
 	Ascending bool
 }
 
-// String returns a string representation of an OrderByField
-func (obf *OrderByField) String() string {
+// String returns a string representation of a sort field
+func (field *SortField) String() string {
 	var buf bytes.Buffer
-	_, _ = buf.WriteString(obf.Name)
+	_, _ = buf.WriteString(field.Name)
 	_, _ = buf.WriteString(" ")
-	_, _ = buf.WriteString(strconv.FormatBool(obf.Ascending))
+	_, _ = buf.WriteString(strconv.FormatBool(field.Ascending))
 	return buf.String()
 }
 
-// OrderByFields represents an ordered list of ORDER BY fields
-type OrderByFields []*OrderByField
+// SortFields represents an ordered list of ORDER BY fields
+type SortFields []*SortField
 
-// String returns a string representation of an OrderByFields
-func (o OrderByFields) String() string {
-	fields := make([]string, 0, len(o))
-	for _, field := range o {
+// String returns a string representation of sort fields
+func (a SortFields) String() string {
+	fields := make([]string, 0, len(a))
+	for _, field := range a {
 		fields = append(fields, field.String())
 	}
 	return strings.Join(fields, ", ")
@@ -203,12 +180,12 @@ type SelectStatement struct {
 	// An expression evaluated on data point.
 	Condition Expr
 
+	// Fields to sort results by
+	SortFields SortFields
+
 	// Maximum number of rows to be returned.
 	// Unlimited if zero.
 	Limit int
-
-	// Sort order.
-	OrderBy Order
 }
 
 // String returns a string representation of the select statement.
@@ -229,9 +206,9 @@ func (s *SelectStatement) String() string {
 	if s.Limit > 0 {
 		_, _ = fmt.Fprintf(&buf, " LIMIT %d", s.Limit)
 	}
-	if s.OrderBy != nil {
-		_, _ = buf.WriteString(" ")
-		_, _ = buf.WriteString(s.OrderBy.String())
+	if len(s.SortFields) > 0 {
+		_, _ = buf.WriteString(" ORDER BY ")
+		_, _ = buf.WriteString(s.SortFields.String())
 	}
 	return buf.String()
 }
@@ -286,7 +263,7 @@ func (s *SelectStatement) Substatement(ref *VarRef) (*SelectStatement, error) {
 		Fields:     Fields{{Expr: ref}},
 		Dimensions: s.Dimensions,
 		Limit:      s.Limit,
-		OrderBy:    s.OrderBy,
+		SortFields:    s.SortFields,
 	}
 
 	// If there is only one series source then return it with the whole condition.
@@ -403,8 +380,8 @@ type ListSeriesStatement struct{
 	// Unlimited if zero.
 	Limit int
 
-	// Sort order.
-	OrderBy Order
+	// Fields to sort results by
+	SortFields SortFields
 }
 
 // String returns a string representation of the list series statement.
